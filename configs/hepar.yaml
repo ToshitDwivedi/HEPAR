@@ -2,6 +2,9 @@
 # ========================
 # Control plane for reproducible experiments
 
+# Enable baseline simulations for full comparison
+simulate_baselines: true
+
 hepar:
   # Quadtree decomposition settings
   quadtree:

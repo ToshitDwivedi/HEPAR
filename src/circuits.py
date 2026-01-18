@@ -122,12 +122,41 @@ class HEPAREncoder(BaseEncoder):
     3. SPAE (Simultaneous Phase-Amplitude Encoding)
     4. TREX (Twirled Readout Error Extinction)
     
+    Enhanced with:
+    - Dynamical Decoupling for phase protection
+    - Improved TREX calibration flow
+    
     Reference: [Your Paper - HEPAR Framework]
     """
     
-    def __init__(self, trex_calibrator=None):
+    def __init__(self, trex_calibrator=None, use_dd: bool = True):
         super().__init__('automatic')
         self.calibrator = trex_calibrator
+        self.use_dd = use_dd
+        self._trex_calibrated = False
+        
+    def _apply_dd_sequence(self, qc: QuantumCircuit, qubit: int) -> QuantumCircuit:
+        """
+        Apply XY4 Dynamical Decoupling sequence to protect phase information.
+        
+        This is critical for SPAE: phase information decays rapidly due to
+        T2 dephasing. DD pulses refocus the phase errors.
+        """
+        if not self.use_dd:
+            return qc
+        
+        # XY4 sequence: X-Y-X-Y (4 pulses)
+        qc_dd = qc.copy()
+        qc_dd.barrier(qubit)
+        qc_dd.x(qubit)
+        qc_dd.barrier(qubit)
+        qc_dd.y(qubit)
+        qc_dd.barrier(qubit)
+        qc_dd.x(qubit)
+        qc_dd.barrier(qubit)
+        qc_dd.y(qubit)
+        qc_dd.barrier(qubit)
+        return qc_dd
         
     def encode(self, leaves: List[LeafNode], apply_trex: bool = True) -> Tuple[Dict, Dict, CircuitMetrics]:
         """
@@ -164,8 +193,12 @@ class HEPAREncoder(BaseEncoder):
                 continue
                 
             # SPAE: Encode amplitude (intensity) and phase (gradient)
-            theta = 2 * np.arcsin(np.sqrt(max(0, min(1, leaf.value))))
-            phi = leaf.gradient * np.pi  # Phase encodes edge information
+            # Clamp values to valid range for numerical stability
+            val_clamped = max(1e-6, min(1 - 1e-6, leaf.value))
+            theta = 2 * np.arcsin(np.sqrt(val_clamped))
+            
+            # Enhanced phase encoding: scale gradient for better edge detection
+            phi = leaf.gradient * np.pi * 0.8  # 80% scaling prevents phase wrapping
             
             # State: |addr>|depth>|payload>
             depth_idx = min(leaf.depth, 2**n_depth - 1)
@@ -186,12 +219,14 @@ class HEPAREncoder(BaseEncoder):
             state[0] = 1.0
         
         # Create and initialize circuit
-        # print("    [HEPAR_INT] Initializing circuit...")
         qc = QuantumCircuit(n_total)
         qc.initialize(state, range(n_total))
         
-        # Transpile to Heavy-Hex topology
-        # print("    [HEPAR_INT] Transpiling...")
+        # Apply DD to payload qubit (protects phase information)
+        if self.use_dd:
+            qc = self._apply_dd_sequence(qc, 0)  # Payload qubit is index 0
+        
+        # Transpile to Heavy-Hex topology with high optimization
         transpiled_qc = self.transpile_circuit(qc)
         
         # Z-basis measurement (intensity recovery)
@@ -205,13 +240,15 @@ class HEPAREncoder(BaseEncoder):
         transpiled_qc_x.measure_all()
         
         # Execute circuits
-        # print("    [HEPAR_INT] Executing Z-basis...")
         z_counts = self.sim.run(qc_z, shots=self.shots).result().get_counts()
-        # print("    [HEPAR_INT] Executing X-basis...")
         x_counts = self.sim.run(transpiled_qc_x, shots=self.shots).result().get_counts()
         
         # Apply TREX correction if enabled and calibrator available
         if apply_trex and self.calibrator is not None:
+            # Ensure calibration is done for this qubit count
+            if not self._trex_calibrated or transpiled_qc.num_qubits not in self.calibrator.inverse_matrices:
+                self.calibrator.calibrate(transpiled_qc.num_qubits)
+                self._trex_calibrated = True
             z_counts = self.calibrator.correct_counts(z_counts, transpiled_qc.num_qubits)
         
         # Collect metrics
@@ -241,8 +278,9 @@ class HEPAREncoder(BaseEncoder):
         for leaf in leaves:
             if leaf.leaf_index >= 2**n_addr:
                 continue
-            theta = 2 * np.arcsin(np.sqrt(max(0, min(1, leaf.value))))
-            phi = leaf.gradient * np.pi
+            val_clamped = max(1e-6, min(1 - 1e-6, leaf.value))
+            theta = 2 * np.arcsin(np.sqrt(val_clamped))
+            phi = leaf.gradient * np.pi * 0.8
             depth_idx = min(leaf.depth, 2**n_depth - 1)
             idx_0 = (leaf.leaf_index << (n_depth + 1)) | (depth_idx << 1) | 0
             idx_1 = (leaf.leaf_index << (n_depth + 1)) | (depth_idx << 1) | 1

@@ -62,8 +62,13 @@ def run_comparative_analysis(
     rec = Reconstructor()
     calc = MetricsCalculator()
     
-    # Encoders
-    hepar_enc = HEPAREncoder()
+    # Initialize TREX calibrator for error mitigation
+    from qiskit_aer import AerSimulator
+    trex_sim = AerSimulator(method='matrix_product_state')
+    trex_calibrator = TREXCalibrator(trex_sim, shots=min(4096, 8192))
+    
+    # Encoders with TREX and DD enabled
+    hepar_enc = HEPAREncoder(trex_calibrator=trex_calibrator, use_dd=True)
     neqr_enc = NEQREncoder()
     frqi_enc = FRQIEncoder()
     

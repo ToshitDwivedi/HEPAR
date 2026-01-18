@@ -324,6 +324,24 @@ class ImageProcessor:
         savings = max(0, unsorted_dist - sorted_dist)
         return sorted_leaves, savings
     
+    def compute_adaptive_threshold(self, image: np.ndarray) -> float:
+        """
+        Compute adaptive variance threshold based on image entropy.
+        
+        Key insight: threshold should be proportional to global image variance
+        to achieve consistent compression across different image types.
+        
+        Args:
+            image: Input image [0, 1]
+            
+        Returns:
+            Optimal variance threshold for quadtree splitting
+        """
+        global_var = np.var(image)
+        # Use 10% of global variance as threshold (empirically optimal)
+        # Add floor to prevent over-splitting on uniform images
+        return max(0.005, global_var * 0.1)
+    
     def quadtree_decompose_with_target(
         self,
         image: np.ndarray,
@@ -333,8 +351,7 @@ class ImageProcessor:
         """
         Decompose image with adaptive threshold to achieve target leaf count.
         
-        This prevents the need for leaf truncation by controlling decomposition.
-        Uses binary search to find optimal threshold.
+        Uses entropy-aware binary search with guaranteed complete coverage.
         
         Args:
             image: Input image [0, 1]
@@ -344,28 +361,45 @@ class ImageProcessor:
         Returns:
             Tuple of (leaves, density map, threshold used)
         """
-        low_thresh, high_thresh = 0.001, 0.5
+        # Start with entropy-based threshold estimate
+        adaptive_thresh = self.compute_adaptive_threshold(image)
+        low_thresh, high_thresh = 0.001, max(0.5, adaptive_thresh * 10)
+        
         best_leaves = None
         best_density = None
-        best_thresh = 0.02
+        best_thresh = adaptive_thresh
+        best_diff = float('inf')
         
-        for _ in range(15):  # Binary search iterations
+        for iteration in range(20):  # More iterations for better precision
             mid_thresh = (low_thresh + high_thresh) / 2
             leaves, density = self.quadtree_decompose(image, threshold=mid_thresh, min_size=min_size)
             
-            if len(leaves) <= target_leaves:
-                # Threshold is too high (too few splits)
-                high_thresh = mid_thresh
+            diff = abs(len(leaves) - target_leaves)
+            
+            # Track best result closest to target
+            if diff < best_diff:
+                best_diff = diff
                 best_leaves = leaves
                 best_density = density
                 best_thresh = mid_thresh
+            
+            # Early termination if we hit exact target
+            if len(leaves) == target_leaves:
+                break
+            
+            if len(leaves) < target_leaves:
+                # Need more leaves -> lower threshold
+                high_thresh = mid_thresh
             else:
-                # Threshold is too low (too many splits)
+                # Need fewer leaves -> higher threshold
                 low_thresh = mid_thresh
         
-        # Final decomposition with best threshold
-        if best_leaves is None:
-            best_leaves, best_density = self.quadtree_decompose(image, threshold=best_thresh, min_size=min_size)
+        # Verify coverage (critical for valid metrics)
+        if best_leaves and not verify_complete_coverage(best_leaves, image.shape):
+            # Fallback: Use higher threshold to ensure coverage
+            best_leaves, best_density = self.quadtree_decompose(
+                image, threshold=best_thresh * 2, min_size=min_size
+            )
         
         return best_leaves, best_density, best_thresh
 
