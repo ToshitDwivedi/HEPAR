@@ -1,0 +1,55 @@
+# HEPAR Configuration File
+# ========================
+# Control plane for reproducible experiments
+
+hepar:
+  # Quadtree decomposition settings
+  quadtree:
+    threshold: 0.05      # Variance threshold for splitting (increased for speed)
+    min_block: 1         # Minimum block size (pixels)
+    max_depth: null      # Maximum depth (null = log2(N))
+  
+  # Encoding settings (SPAE)
+  encoding:
+    use_spae: true       # Simultaneous Phase-Amplitude Encoding
+    use_phase: true      # Encode gradient in phase
+    intensity_bits: 1    # Payload qubit count
+  
+  # Compilation settings
+  compilation:
+    gray_code: true      # Gray code sorting of leaves
+    topology_aware: false # Heavy-Hex transpilation
+    optimization_level: 1
+  
+  # Error mitigation
+  mitigation:
+    trex: true           # Twirled Readout Error Extinction
+    dd: false            # Dynamical Decoupling (future)
+    calibration_shots: 4096
+
+# Simulation settings
+simulation:
+  shots: 8192
+  method: "automatic"  # Best available method
+  seed: 42
+
+# Noise model (IBM-like)
+noise:
+  enabled: true
+  p1_error: 0.001     # Single-qubit gate error
+  p2_error: 0.01      # Two-qubit gate error
+  read_error: 0.02    # Readout error
+
+# Dataset settings
+datasets:
+  names: ["Lena", "MRI", "Noise"]
+  size: 16
+  
+# Ablation variants (for HEPAR-minus-X experiments)
+# Set any to false to disable that pillar
+ablation:
+  hepar_no_qt: false       # Disable quadtree (use all pixels)
+  hepar_no_gc: false       # Disable Gray code sorting
+  hepar_no_spae: false     # Disable phase encoding
+  hepar_no_trex: false     # Disable TREX
+  hepar_no_dd: false       # Disable DD

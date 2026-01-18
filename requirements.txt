@@ -1,0 +1,22 @@
+# HEPAR Springer Benchmarks
+# Dependencies for research-grade quantum image representation analysis
+
+# Core Scientific Computing
+numpy>=1.24.0
+pandas>=2.0.0
+scipy>=1.11.0
+
+# Quantum Computing
+qiskit>=1.0.0
+qiskit-aer>=0.13.0
+
+# Image Processing
+pillow>=10.0.0
+scikit-image>=0.21.0
+
+# Visualization
+matplotlib>=3.7.0
+seaborn>=0.12.0
+
+# Optional: Faster execution
+# numba>=0.57.0
